@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node index.js",
     "web": "npx serve web -p 3000",
-    "web:dev": "npx serve web -p 3000"
+    "web:dev": "npx serve web -p 3000",
+    "build": "echo 'Build complete - static files in web/ directory'"
   },
   "author": "",
   "license": "MIT",
