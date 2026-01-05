@@ -1,0 +1,7 @@
+# Cloudflare Pages configuration
+# This file tells Cloudflare Pages to deploy static assets from web/ directory
+# For static sites, no build command is needed
+
+[site]
+bucket = "./web"
+

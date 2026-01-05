@@ -56,13 +56,17 @@ Aplikace bude dostupná na `http://localhost:3000`
 2. V Cloudflare Dashboard → Pages → Create a project
 3. Připojte GitHub repository
 4. **Build settings:**
-   - **Framework preset**: None
-   - **Build command**: (nechte prázdné - statické soubory nepotřebují build)
+   - **Framework preset**: `None` (nebo `Other`)
+   - **Build command**: `npm run build` (nebo nechte prázdné)
    - **Build output directory**: `web`
    - **Root directory**: (nechte prázdné)
-5. Deploy
+5. **Deploy command**: (nechte prázdné - NENASTAVUJTE žádný deploy command!)
+6. Deploy
 
-**Důležité:** Nevybírejte žádný framework preset a nechte build command prázdný. Cloudflare Pages pouze zkopíruje statické soubory ze složky `web/`.
+**Důležité:** 
+- Nevybírejte žádný framework preset (nebo vyberte "None"/"Other")
+- **NENASTAVUJTE deploy command** - pokud vidíte pole "Deploy command", nechte ho prázdné
+- Cloudflare Pages automaticky zkopíruje statické soubory ze složky `web/` po úspěšném buildu
 
 **Poznámka:** Web Serial API funguje pouze v Chrome a Edge prohlížečích.
 
