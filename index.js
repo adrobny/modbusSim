@@ -16,12 +16,16 @@ const REGISTER_VALUE = 0x100;   // Value 0x100 (256 decimal)
 const START_ADDRESS = parseInt(process.env.START_ADDRESS) || 10;       // Start Modbus address
 const END_ADDRESS = parseInt(process.env.END_ADDRESS) || 10;         // End Modbus address
 
-// Create input registers buffer (function code 04) - big enough for our register + next one for 2-word response
-const inputRegisters = Buffer.alloc((REGISTER_ADDRESS + 2) * 2, 0);
-// Set our register value at address 0x400
+// Create input registers buffer (function code 04) - large enough for any reasonable register address
+// Modbus supports up to 65535 registers, but we'll use 10000 for practical purposes
+const MAX_REGISTER = 10000;
+const inputRegisters = Buffer.alloc(MAX_REGISTER * 2, 0);
+// Initialize all registers with their address as value (will be overridden for specific registers)
+for (let i = 0; i < MAX_REGISTER; i++) {
+    inputRegisters.writeUInt16BE(i & 0xFFFF, i * 2);
+}
+// Set special value for register 0x400
 inputRegisters.writeUInt16BE(REGISTER_VALUE, REGISTER_ADDRESS * 2);
-// Set next register to 0x0000 for 2-word response capability
-inputRegisters.writeUInt16BE(0x0000, (REGISTER_ADDRESS + 1) * 2);
 
 console.log('Modbus RTU Simulator');
 console.log(`COM Port: ${CONFIG.port}`);
@@ -116,7 +120,10 @@ const server = new Modbus.server.RTU(serialPort, {
 // Pre-handler to filter requests by address BEFORE processing
 server.on('preReadInputRegisters', (request, reply) => {
     const address = request.unitId;
-    console.log(`[PRE-CHECK] Adresa: ${address}`);
+    const startRegister = request.address;
+    const quantity = request.quantity;
+    
+    console.log(`[PRE-CHECK] Adresa: ${address}, Registr: ${startRegister} (0x${startRegister.toString(16).toUpperCase()}), Počet: ${quantity}`);
     
     // Check if address is in valid range
     if (address < START_ADDRESS || address > END_ADDRESS) {
@@ -127,15 +134,31 @@ server.on('preReadInputRegisters', (request, reply) => {
         return;
     }
     
-    // Address is valid - ensure buffer has correct values and let it proceed
+    // Address is valid - set values in buffer based on requested registers
     console.log(`[POVOLENO PRE] Adresa ${address} je platná, nastavuji hodnoty v bufferu`);
-    inputRegisters.writeUInt16BE(REGISTER_VALUE, REGISTER_ADDRESS * 2);
-    inputRegisters.writeUInt16BE(0x0000, (REGISTER_ADDRESS + 1) * 2);
     
-    // Log what will be returned
-    const reg1 = inputRegisters.readUInt16BE(REGISTER_ADDRESS * 2);
-    const reg2 = inputRegisters.readUInt16BE((REGISTER_ADDRESS + 1) * 2);
-    console.log(`[PŘIPRAVENO] Buffer nastaven: Registr ${REGISTER_ADDRESS}: 0x${reg1.toString(16).toUpperCase()} (${reg1}), Registr ${REGISTER_ADDRESS + 1}: 0x${reg2.toString(16).toUpperCase()} (${reg2})`);
+    // Set values for all requested registers
+    for (let i = 0; i < quantity; i++) {
+        const registerAddr = startRegister + i;
+        const bufferOffset = registerAddr * 2;
+        
+        // Check if register is within buffer range
+        if (registerAddr >= MAX_REGISTER) {
+            console.log(`[VAROVÁNÍ] Registr ${registerAddr} je mimo rozsah bufferu (max ${MAX_REGISTER}), přeskočeno`);
+            continue;
+        }
+        
+        // If register is 0x400, use special value 0x100, otherwise use register address as value
+        if (registerAddr === REGISTER_ADDRESS) {
+            inputRegisters.writeUInt16BE(REGISTER_VALUE, bufferOffset);
+            console.log(`[BUFFER] Registr ${registerAddr} (0x${registerAddr.toString(16).toUpperCase()}): hodnota 0x${REGISTER_VALUE.toString(16).toUpperCase()} (speciální)`);
+        } else {
+            // Use register address as value (but only lower 16 bits)
+            const registerValue = registerAddr & 0xFFFF;
+            inputRegisters.writeUInt16BE(registerValue, bufferOffset);
+            console.log(`[BUFFER] Registr ${registerAddr} (0x${registerAddr.toString(16).toUpperCase()}): hodnota 0x${registerValue.toString(16).toUpperCase()} (stejná jako adresa)`);
+        }
+    }
     
     reply(null); // null means continue with normal processing (default handler will use buffer)
 });
