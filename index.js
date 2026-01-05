@@ -16,10 +16,12 @@ const REGISTER_VALUE = 0x100;   // Value 0x100 (256 decimal)
 const START_ADDRESS = 10;       // Start Modbus address
 const END_ADDRESS = 50;         // End Modbus address
 
-// Create holding registers buffer (big enough for our register)
-const holdingRegisters = Buffer.alloc((REGISTER_ADDRESS + 1) * 2, 0);
+// Create input registers buffer (function code 04) - big enough for our register + next one for 2-word response
+const inputRegisters = Buffer.alloc((REGISTER_ADDRESS + 2) * 2, 0);
 // Set our register value at address 0x400
-holdingRegisters.writeUInt16BE(REGISTER_VALUE, REGISTER_ADDRESS * 2);
+inputRegisters.writeUInt16BE(REGISTER_VALUE, REGISTER_ADDRESS * 2);
+// Set next register to 0x0000 for 2-word response capability
+inputRegisters.writeUInt16BE(0x0000, (REGISTER_ADDRESS + 1) * 2);
 
 console.log('Modbus RTU Simulator');
 console.log(`COM Port: ${CONFIG.port}`);
@@ -39,14 +41,14 @@ const serialPort = new SerialPort.SerialPort({
 
 // Create Modbus RTU server
 const server = new Modbus.server.RTU(serialPort, {
-    holding: holdingRegisters,
+    holding: Buffer.alloc(1024, 0),
     coils: Buffer.alloc(1024, 0),
     discrete: Buffer.alloc(1024, 0),
-    input: Buffer.alloc(1024, 0)
+    input: inputRegisters
 });
 
-// Handle read holding registers request
-server.on('readHoldingRegisters', (request, reply) => {
+// Handle read input registers request (function code 04)
+server.on('readInputRegisters', (request, reply) => {
     const address = request.unitId;
     const startRegister = request.address;
     const quantity = request.quantity;
@@ -55,9 +57,17 @@ server.on('readHoldingRegisters', (request, reply) => {
 
     // Check if address is in valid range
     if (address >= START_ADDRESS && address <= END_ADDRESS) {
-        // Default behavior - use the buffer data
-        const response = holdingRegisters.slice(startRegister * 2, (startRegister + quantity) * 2);
-        console.log(`Responding with register data`);
+        // For addresses 10-50, always respond with exactly 2 registers starting from our target register
+        const responseStart = REGISTER_ADDRESS;
+        const responseQuantity = 2; // Always return 2 words
+
+        // Ensure buffer has correct values
+        inputRegisters.writeUInt16BE(REGISTER_VALUE, REGISTER_ADDRESS * 2);
+        inputRegisters.writeUInt16BE(0x0000, (REGISTER_ADDRESS + 1) * 2);
+
+        // Return exactly 2 registers (4 bytes) from buffer
+        const response = inputRegisters.slice(responseStart * 2, (responseStart + responseQuantity) * 2);
+        console.log(`Responding with 2 registers (${response.length} bytes): 0x${response.readUInt16BE(0).toString(16).toUpperCase()} 0x${response.readUInt16BE(2).toString(16).toUpperCase()}`);
         reply(null, response);
     } else {
         console.log(`Address ${address} not in valid range (${START_ADDRESS}-${END_ADDRESS})`);
