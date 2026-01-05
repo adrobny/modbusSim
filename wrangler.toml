@@ -1,7 +1,0 @@
-# Cloudflare Pages configuration for static assets
-name = "modbus-rtu-simulator"
-compatibility_date = "2026-01-05"
-
-[site]
-bucket = "./web"
-
