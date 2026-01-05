@@ -14,7 +14,7 @@ const CONFIG = {
 const REGISTER_ADDRESS = 0x400; // Register 0x400 (1024 decimal)
 const REGISTER_VALUE = 0x100;   // Value 0x100 (256 decimal)
 const START_ADDRESS = parseInt(process.env.START_ADDRESS) || 10;       // Start Modbus address
-const END_ADDRESS = parseInt(process.env.END_ADDRESS) || 10;         // End Modbus address
+const END_ADDRESS = parseInt(process.env.END_ADDRESS) || 11;         // End Modbus address
 
 // Create input registers buffer (function code 04) - large enough for any reasonable register address
 // Modbus supports up to 65535 registers, but we'll use 10000 for practical purposes
