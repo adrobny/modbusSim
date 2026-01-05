@@ -46,6 +46,22 @@ const serialPort = new SerialPort.SerialPort({
 // Track last request address globally
 let lastRequestAddress = null;
 
+// CRC16 calculation for Modbus RTU
+function calculateCRC16(data) {
+    let crc = 0xFFFF;
+    for (let i = 0; i < data.length; i++) {
+        crc ^= data[i];
+        for (let j = 0; j < 8; j++) {
+            if (crc & 0x0001) {
+                crc = (crc >> 1) ^ 0xA001;
+            } else {
+                crc >>= 1;
+            }
+        }
+    }
+    return crc;
+}
+
 // Intercept serial port write to log and filter responses
 const originalSerialWrite = serialPort.write.bind(serialPort);
 serialPort.write = function(data, callback) {
@@ -72,12 +88,30 @@ serialPort.write = function(data, callback) {
         const byteCount = data[2];
         const dataBytes = data.length - 4; // Subtract address, function code, byte count, and CRC (2 bytes)
         
-        // ALWAYS check if response address is in valid range - block if not
-        if (responseAddress < START_ADDRESS || responseAddress > END_ADDRESS) {
-            console.log(`[BLOKOVÁNO ODESLÁNÍ] Adresa v odpovědi ${responseAddress} není v platném rozsahu (${START_ADDRESS}-${END_ADDRESS}), Data: ${hexString}, Délka: ${data.length} bytů - odpověď zablokována`);
-            lastRequestAddress = null;
-            if (callback) callback();
-            return true; // Pretend we wrote it, but don't actually write
+        // Check if we should block based on lastRequestAddress (from the actual request)
+        if (lastRequestAddress !== null) {
+            if (lastRequestAddress < START_ADDRESS || lastRequestAddress > END_ADDRESS) {
+                console.log(`[BLOKOVÁNO ODESLÁNÍ] Adresa z požadavku ${lastRequestAddress} není v platném rozsahu (${START_ADDRESS}-${END_ADDRESS}), Data: ${hexString}, Délka: ${data.length} bytů - odpověď zablokována`);
+                lastRequestAddress = null;
+                if (callback) callback();
+                return true; // Pretend we wrote it, but don't actually write
+            }
+            
+            // Ensure response has correct address from request
+            if (responseAddress !== lastRequestAddress) {
+                console.log(`[OPRAVA] Adresa v odpovědi ${responseAddress} se liší od adresy v požadavku ${lastRequestAddress} - opravuji na ${lastRequestAddress}`);
+                data[0] = lastRequestAddress;
+                // Recalculate CRC with corrected address
+                const crc = calculateCRC16(data.slice(0, -2));
+                data[data.length - 2] = crc & 0xFF;
+                data[data.length - 1] = (crc >> 8) & 0xFF;
+                // Update hex string for logging
+                const correctedHexString = data.toString('hex').toUpperCase().match(/.{1,2}/g).join(' ');
+                console.log(`[ODESLÁNO] Adresa: ${lastRequestAddress}, FC: ${functionCode}, Byte count: ${byteCount}, Data bytes: ${dataBytes}, Celkem: ${data.length} bytů`);
+                console.log(`[ODESLÁNO HEX] ${correctedHexString}`);
+                lastRequestAddress = null; // Reset after valid response
+                return originalSerialWrite(data, callback);
+            }
         }
         
         // Address is valid - log and send
@@ -103,7 +137,7 @@ serialPort.on('data', (data) => {
         const hexString = data.toString('hex').toUpperCase().match(/.{1,2}/g).join(' ');
         // First byte is the Modbus unit ID (address)
         const address = data[0];
-        lastRequestAddress = address;
+        // Don't set lastRequestAddress here - it will be set in preReadInputRegisters handler
         console.log(`[RAW PŘÍJEM] Adresa: ${address}, Data: ${hexString}, Délka: ${data.length} bytů`);
     }
 });
@@ -123,6 +157,9 @@ server.on('preReadInputRegisters', (request, reply) => {
     const startRegister = request.address;
     const quantity = request.quantity;
     
+    // Set lastRequestAddress here from the actual request, not from raw data
+    lastRequestAddress = address;
+    
     console.log(`[PRE-CHECK] Adresa: ${address}, Registr: ${startRegister} (0x${startRegister.toString(16).toUpperCase()}), Počet: ${quantity}`);
     
     // Check if address is in valid range
@@ -131,6 +168,8 @@ server.on('preReadInputRegisters', (request, reply) => {
         // Call reply with empty buffer - this prevents default handler from processing
         // Serial port write override will block the actual write
         reply(null, Buffer.alloc(0));
+        // Reset lastRequestAddress after blocking
+        lastRequestAddress = null;
         return;
     }
     

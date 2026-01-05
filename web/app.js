@@ -161,14 +161,21 @@ function processReceivedData(data) {
     if (data.length < 4) return; // Minimum frame size
     
     const address = data[0];
+    // Store address for potential use, but we'll use address from request data directly
+    const previousAddress = lastRequestAddress;
     lastRequestAddress = address;
     
     const hexString = Array.from(data).map(b => b.toString(16).toUpperCase().padStart(2, '0')).join(' ');
     log(`[PŘÍJEM] Adresa: ${address}, Data: ${hexString}, Délka: ${data.length} bytů`);
     
+    if (previousAddress !== null && previousAddress !== address) {
+        log(`[INFO] Předchozí adresa byla ${previousAddress}, nová adresa je ${address}`, 'info');
+    }
+    
     // Check if address is in valid range
     if (address < START_ADDRESS || address > END_ADDRESS) {
         log(`[BLOKOVÁNO] Adresa ${address} není v platném rozsahu (${START_ADDRESS}-${END_ADDRESS}) - požadavek ignorován`, 'warning');
+        lastRequestAddress = null; // Reset after blocking
         return;
     }
     
@@ -178,16 +185,18 @@ function processReceivedData(data) {
     
     if (receivedCRC !== calculatedCRC) {
         log(`[CHYBA] Neplatný CRC: přijato 0x${receivedCRC.toString(16)}, vypočteno 0x${calculatedCRC.toString(16)}`, 'error');
+        lastRequestAddress = null; // Reset after error
         return;
     }
     
-    // Process request
+    // Process request - pass the data array, address will be extracted from data[0] in the handler
     const functionCode = data[1];
     
     if (functionCode === 0x04) { // Read Input Registers
         processReadInputRegisters(data, address);
     } else {
         log(`[NEPODPOROVÁNO] Function code: 0x${functionCode.toString(16)}`, 'warning');
+        lastRequestAddress = null; // Reset after unsupported function
     }
 }
 
@@ -196,7 +205,14 @@ function processReadInputRegisters(request, address) {
     const startRegister = (request[2] << 8) | request[3];
     const quantity = (request[4] << 8) | request[5];
     
-    log(`[POŽADAVEK] Adresa: ${address}, Registr: ${startRegister} (0x${startRegister.toString(16).toUpperCase()}), Počet: ${quantity}`);
+    // Ensure we use the correct address from the request
+    const requestAddress = request[0]; // Get address directly from request data
+    if (requestAddress !== address) {
+        log(`[VAROVÁNÍ] Adresa z parametru ${address} se liší od adresy v requestu ${requestAddress} - používám adresu z requestu`, 'warning');
+    }
+    const correctAddress = requestAddress; // Use address from request data
+    
+    log(`[POŽADAVEK] Adresa: ${correctAddress}, Registr: ${startRegister} (0x${startRegister.toString(16).toUpperCase()}), Počet: ${quantity}`);
     
     // Update buffer values
     for (let i = 0; i < quantity; i++) {
@@ -212,9 +228,9 @@ function processReadInputRegisters(request, address) {
         }
     }
     
-    // Build response
+    // Build response - use correct address from request
     const response = new Uint8Array(3 + quantity * 2 + 2);
-    response[0] = address;
+    response[0] = correctAddress; // Use address from request, not parameter
     response[1] = 0x04; // Function code
     response[2] = quantity * 2; // Byte count
     
@@ -231,7 +247,7 @@ function processReadInputRegisters(request, address) {
     response[response.length - 1] = (crc >> 8) & 0xFF;
     
     const hexString = Array.from(response).map(b => b.toString(16).toUpperCase().padStart(2, '0')).join(' ');
-    log(`[ODESLÁNO] Adresa: ${address}, FC: 0x04, Byte count: ${quantity * 2}, Data bytes: ${quantity * 2}, Celkem: ${response.length} bytů`);
+    log(`[ODESLÁNO] Adresa: ${correctAddress}, FC: 0x04, Byte count: ${quantity * 2}, Data bytes: ${quantity * 2}, Celkem: ${response.length} bytů`);
     log(`[ODESLÁNO HEX] ${hexString}`);
     
     // Send response
@@ -288,4 +304,5 @@ document.getElementById('registerValue').addEventListener('change', (e) => {
 initRegisters();
 log('Modbus RTU Simulator inicializován', 'success');
 log('Použijte Chrome nebo Edge pro Web Serial API podporu', 'info');
+
 
