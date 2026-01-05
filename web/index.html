@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Modbus RTU Simulator</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <h1>Modbus RTU Simulator</h1>
+        
+        <div class="config-panel">
+            <h2>Konfigurace</h2>
+            <div class="form-group">
+                <label>Baud Rate:</label>
+                <select id="baudRate">
+                    <option value="9600" selected>9600</option>
+                    <option value="19200">19200</option>
+                    <option value="38400">38400</option>
+                    <option value="57600">57600</option>
+                    <option value="115200">115200</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Start Adresa:</label>
+                <input type="number" id="startAddress" value="10" min="1" max="247">
+            </div>
+            <div class="form-group">
+                <label>End Adresa:</label>
+                <input type="number" id="endAddress" value="11" min="1" max="247">
+            </div>
+            <div class="form-group">
+                <label>Registr (hex):</label>
+                <input type="text" id="registerAddress" value="400" pattern="[0-9A-Fa-f]+">
+            </div>
+            <div class="form-group">
+                <label>Hodnota (hex):</label>
+                <input type="text" id="registerValue" value="100" pattern="[0-9A-Fa-f]+">
+            </div>
+        </div>
+
+        <div class="control-panel">
+            <button id="connectBtn" class="btn btn-primary">Připojit Port</button>
+            <button id="disconnectBtn" class="btn btn-secondary" disabled>Odpojit</button>
+            <button id="clearLogBtn" class="btn btn-secondary">Vymazat Log</button>
+        </div>
+
+        <div class="status-panel">
+            <div id="status" class="status">Nepřipojeno</div>
+            <div id="portInfo" class="port-info"></div>
+        </div>
+
+        <div class="log-panel">
+            <h2>Log</h2>
+            <div id="log" class="log"></div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
+

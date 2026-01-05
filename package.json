@@ -1,15 +1,20 @@
 {
   "name": "modbus-rtu-simulator",
   "version": "1.0.0",
-  "description": "Modbus RTU device simulator",
+  "description": "Modbus RTU device simulator - Node.js and Web versions",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "web": "npx serve web -p 3000",
+    "web:dev": "npx serve web -p 3000"
   },
   "author": "",
   "license": "MIT",
   "dependencies": {
     "jsmodbus": "^4.0.10",
     "serialport": "^13.0.0"
+  },
+  "devDependencies": {
+    "serve": "^14.2.1"
   }
 }
