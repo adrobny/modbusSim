@@ -65,14 +65,15 @@ Aplikace bude dostupná na `http://localhost:3000`
 
 **Důležité:** 
 - Nevybírejte žádný framework preset (nebo vyberte "None"/"Other")
-- **NENASTAVUJTE deploy command** - pokud vidíte pole "Deploy command", nechte ho prázdné nebo ho úplně odstraňte
+- **Deploy command**: Nastavte na `npm run deploy` (jednoduchý script, který nic nedělá - statické soubory se nasazují automaticky)
 - **NEPOUŽÍVEJTE wrangler.toml** - ten je pro Workers, ne pro Pages
 - Cloudflare Pages automaticky zkopíruje statické soubory ze složky `web/` po úspěšném buildu
 
-**Řešení problému s "npx wrangler deploy":**
-Pokud Cloudflare Pages stále spouští `npx wrangler deploy`, zkontrolujte v **Settings → Builds & deployments**:
-- Zda není nastavený "Deploy command" - pokud ano, odstraňte ho
-- Zda není automaticky detekován nějaký framework - vyberte "None"
+**Nastavení v Cloudflare Dashboard:**
+- **Framework preset**: `None`
+- **Build command**: `npm run build` (nebo prázdné)
+- **Build output directory**: `web`
+- **Deploy command**: `npm run deploy` (povinné pole, ale script nic nedělá - soubory se nasazují automaticky)
 
 **Poznámka:** Web Serial API funguje pouze v Chrome a Edge prohlížečích.
 

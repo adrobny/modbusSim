@@ -7,7 +7,8 @@
     "start": "node index.js",
     "web": "npx serve web -p 3000",
     "web:dev": "npx serve web -p 3000",
-    "build": "echo 'Static files ready in web/ directory'"
+    "build": "echo 'Static files ready in web/ directory'",
+    "deploy": "echo 'Deploying static files from web/ directory'"
   },
   "author": "",
   "license": "MIT",
