@@ -1,6 +1,6 @@
-# Cloudflare Pages configuration
-# This file tells Cloudflare Pages to deploy static assets from web/ directory
-# For static sites, no build command is needed
+# Cloudflare Pages configuration for static assets
+name = "modbus-rtu-simulator"
+compatibility_date = "2026-01-05"
 
 [site]
 bucket = "./web"
