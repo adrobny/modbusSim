@@ -123,15 +123,27 @@ async function disconnect() {
     document.getElementById('disconnectBtn').disabled = true;
 }
 
+// Calculate frame timeout based on baud rate (3.5 character times)
+function getFrameTimeout(baudRate) {
+    // 3.5 character times = 3.5 * 11 bits (1 start + 8 data + 1 parity + 1 stop)
+    // Time in milliseconds = (3.5 * 11 * 1000) / baudRate
+    const timeout = Math.ceil((3.5 * 11 * 1000) / baudRate);
+    // Use minimum 5ms and add safety margin
+    return Math.max(timeout + 2, 5);
+}
+
 // Read loop
 async function readLoop() {
     const buffer = [];
     let frameTimeout = null;
+    let lastByteTime = 0;
     
     while (port && port.readable) {
         try {
             const { value, done } = await reader.read();
             if (done) break;
+            
+            const currentTime = Date.now();
             
             // Add received bytes to buffer
             buffer.push(...value);
@@ -139,21 +151,142 @@ async function readLoop() {
             // Clear existing timeout
             if (frameTimeout) {
                 clearTimeout(frameTimeout);
+                frameTimeout = null;
             }
             
-            // Wait for frame completion (3.5 character times at current baud rate)
-            // For 9600 baud: 3.5 * 11 bits / 9600 = ~4ms, we'll use 10ms for safety
+            // Calculate timeout based on baud rate
+            const timeout = getFrameTimeout(CONFIG.baudRate);
+            
+            // Check if we can process a complete frame immediately
+            // Try to parse frames from buffer while waiting for more data
+            processFramesFromBuffer(buffer);
+            
+            // Wait for frame completion (3.5 character times)
             frameTimeout = setTimeout(() => {
                 if (buffer.length > 0) {
-                    processReceivedData(new Uint8Array(buffer));
-                    buffer.length = 0;
+                    // Try to process all complete frames from buffer
+                    processFramesFromBuffer(buffer);
                 }
-            }, 10);
+            }, timeout);
+            
+            lastByteTime = currentTime;
         } catch (error) {
             log(`Chyba čtení: ${error.message}`, 'error');
             break;
         }
     }
+}
+
+// Process complete frames from buffer
+function processFramesFromBuffer(buffer) {
+    while (buffer.length >= 4) { // Minimum frame size
+        // Try to find and process a complete frame
+        const frame = extractFrame(buffer);
+        if (frame) {
+            processReceivedData(frame);
+        } else {
+            // No complete frame found, wait for more data
+            break;
+        }
+    }
+}
+
+// Extract a complete Modbus RTU frame from buffer
+function extractFrame(buffer) {
+    if (buffer.length < 4) return null; // Minimum frame size
+    
+    const address = buffer[0];
+    const functionCode = buffer[1];
+    
+    // Calculate expected frame length based on function code
+    let expectedLength = 0;
+    
+    if (functionCode === 0x04) { // Read Input Registers
+        if (buffer.length < 8) return null; // Need at least: addr(1) + FC(1) + start(2) + qty(2) + CRC(2)
+        const quantity = (buffer[4] << 8) | buffer[5];
+        expectedLength = 8; // addr + FC + start_reg(2) + quantity(2) + CRC(2)
+    } else if (functionCode === 0x03) { // Read Holding Registers
+        if (buffer.length < 8) return null;
+        const quantity = (buffer[4] << 8) | buffer[5];
+        expectedLength = 8;
+    } else if (functionCode >= 0x01 && functionCode <= 0x06) {
+        // Single register/coil operations: addr + FC + addr(2) + value(2) + CRC(2) = 8 bytes
+        expectedLength = 8;
+    } else {
+        // Unknown function code, try minimum frame
+        expectedLength = 4;
+    }
+    
+    // Check if we have enough data for complete frame
+    if (buffer.length < expectedLength) {
+        return null; // Wait for more data
+    }
+    
+    // Extract frame
+    const frame = new Uint8Array(buffer.slice(0, expectedLength));
+    
+    // Verify CRC
+    const receivedCRC = frame[frame.length - 2] | (frame[frame.length - 1] << 8);
+    const calculatedCRC = calculateCRC16(frame.slice(0, -2));
+    
+    if (receivedCRC === calculatedCRC) {
+        // Valid frame found, remove it from buffer
+        buffer.splice(0, expectedLength);
+        return frame;
+    } else {
+        // CRC doesn't match - might be two frames merged
+        // Try to find next possible frame start (look for valid Modbus address)
+        for (let i = 1; i < Math.min(buffer.length - 3, 20); i++) {
+            // Check if byte at position i could be a valid address (1-247)
+            const testAddress = buffer[i];
+            if (testAddress >= 1 && testAddress <= 247) {
+                // Try to extract frame starting from this position
+                const testFrame = extractFrameFromPosition(buffer, i);
+                if (testFrame) {
+                    // Found valid frame, log the issue and remove everything before it
+                    log(`[VAROVÁNÍ] Detekovány slepené pakety - nalezen platný rámec na pozici ${i}, odstraňuji ${i} bytů před ním`, 'warning');
+                    buffer.splice(0, i);
+                    return testFrame;
+                }
+            }
+        }
+        
+        // No valid frame found starting from any position
+        // This might be corrupted data, remove first byte and try again
+        log(`[VAROVÁNÍ] Neplatný CRC a žádný další platný rámec nenalezen - odstraňuji první byte (0x${buffer[0].toString(16).toUpperCase()})`, 'warning');
+        buffer.shift();
+        return null;
+    }
+}
+
+// Try to extract frame from specific position
+function extractFrameFromPosition(buffer, startPos) {
+    if (buffer.length < startPos + 4) return null;
+    
+    const address = buffer[startPos];
+    const functionCode = buffer[startPos + 1];
+    
+    let expectedLength = 0;
+    if (functionCode === 0x04 || functionCode === 0x03) {
+        if (buffer.length < startPos + 8) return null;
+        expectedLength = 8;
+    } else if (functionCode >= 0x01 && functionCode <= 0x06) {
+        expectedLength = 8;
+    } else {
+        expectedLength = 4;
+    }
+    
+    if (buffer.length < startPos + expectedLength) return null;
+    
+    const frame = new Uint8Array(buffer.slice(startPos, startPos + expectedLength));
+    const receivedCRC = frame[frame.length - 2] | (frame[frame.length - 1] << 8);
+    const calculatedCRC = calculateCRC16(frame.slice(0, -2));
+    
+    if (receivedCRC === calculatedCRC) {
+        return frame;
+    }
+    
+    return null;
 }
 
 // Process received Modbus RTU frame
