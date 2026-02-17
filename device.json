@@ -1,0 +1,34 @@
+{
+    "name": "Sample Modbus Device",
+    "description": "A sample device for testing",
+    "registers": [
+        {
+            "address": 10,
+            "type": "HoldingRegister",
+            "dataType": "uint16",
+            "value": 1234,
+            "name": "Test Register 1"
+        },
+        {
+            "address": 11,
+            "type": "HoldingRegister",
+            "dataType": "uint16",
+            "value": 5678,
+            "name": "Test Register 2"
+        },
+        {
+            "address": 100,
+            "type": "InputRegister",
+            "dataType": "float32",
+            "value": 123.45,
+            "name": "Temperature"
+        },
+        {
+            "address": 400,
+            "type": "InputRegister",
+            "dataType": "uint16",
+            "value": 256,
+            "name": "Special Register"
+        }
+    ]
+}

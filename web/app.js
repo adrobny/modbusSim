@@ -1,4 +1,4 @@
-// Configuration
+// Configuration & State
 let CONFIG = {
     baudRate: 9600,
     dataBits: 8,
@@ -6,28 +6,55 @@ let CONFIG = {
     parity: 'none'
 };
 
-let REGISTER_ADDRESS = 0x400;
-let REGISTER_VALUE = 0x100;
-let START_ADDRESS = 10;
-let END_ADDRESS = 11;
-const MAX_REGISTER = 10000;
+let device = {
+    name: "Moje Zařízení",
+    registers: [
+        { address: 10, type: 'HoldingRegister', dataType: 'uint16', value: 1234, name: 'Test Register' }
+    ]
+};
 
 // Web Serial API
 let port = null;
 let reader = null;
 let writer = null;
-let inputRegisters = new Uint16Array(MAX_REGISTER);
-let lastRequestAddress = null;
+let keepReading = false;
 
-// Initialize registers
-function initRegisters() {
-    for (let i = 0; i < MAX_REGISTER; i++) {
-        inputRegisters[i] = i & 0xFFFF;
-    }
-    inputRegisters[REGISTER_ADDRESS] = REGISTER_VALUE;
-}
+// DOM Elements
+const elements = {
+    baudRate: document.getElementById('baudRate'),
+    dataBits: document.getElementById('dataBits'),
+    stopBits: document.getElementById('stopBits'),
+    parity: document.getElementById('parity'),
+    connectBtn: document.getElementById('connectBtn'),
+    disconnectBtn: document.getElementById('disconnectBtn'),
+    status: document.getElementById('status'),
+    portInfo: document.getElementById('portInfo'),
+    log: document.getElementById('log'),
+    clearLogBtn: document.getElementById('clearLogBtn'),
 
-// CRC16 calculation for Modbus RTU
+    // Check if elements exist (legacy safety)
+    exportBtn: document.getElementById('exportBtn'),
+    importBtn: document.getElementById('importBtn'),
+    fileInput: document.getElementById('fileInput'),
+    deviceName: document.getElementById('deviceName'),
+    addRegisterBtn: document.getElementById('addRegisterBtn'),
+    registersTable: document.getElementById('registersBody'),
+
+    // Modal
+    modal: document.getElementById('registerModal'),
+    modalTitle: document.getElementById('modalTitle'),
+    registerForm: document.getElementById('registerForm'),
+    regAddress: document.getElementById('regAddress'),
+    regType: document.getElementById('regType'),
+    regDataType: document.getElementById('regDataType'),
+    regValue: document.getElementById('regValue'),
+    regName: document.getElementById('regName'),
+    editIndex: document.getElementById('editIndex'),
+    cancelModalBtn: document.getElementById('cancelModalBtn'),
+    closeModal: document.querySelector('.close')
+};
+
+// --- CRC16 Calculation ---
 function calculateCRC16(data) {
     let crc = 0xFFFF;
     for (let i = 0; i < data.length; i++) {
@@ -43,26 +70,193 @@ function calculateCRC16(data) {
     return crc;
 }
 
-// Log function
+// --- Logging ---
 function log(message, type = 'info') {
-    const logDiv = document.getElementById('log');
     const time = new Date().toLocaleTimeString();
     const entry = document.createElement('div');
     entry.className = `log-entry log-${type}`;
     entry.textContent = `[${time}] ${message}`;
-    logDiv.appendChild(entry);
-    logDiv.scrollTop = logDiv.scrollHeight;
+    elements.log.appendChild(entry);
+    elements.log.scrollTop = elements.log.scrollHeight;
 }
 
-// Update status
 function updateStatus(status, portInfo = '') {
-    const statusEl = document.getElementById('status');
-    statusEl.textContent = status;
-    statusEl.className = status === 'Připojeno' ? 'status connected' : 'status';
-    document.getElementById('portInfo').textContent = portInfo;
+    elements.status.textContent = status;
+    elements.status.className = status === 'Připojeno' ? 'status connected' : 'status';
+    elements.portInfo.textContent = portInfo;
 }
 
-// Connect to serial port
+// --- UI rendering ---
+function renderRegisters() {
+    if (!elements.registersTable) return;
+
+    elements.registersTable.innerHTML = '';
+    device.registers.forEach((reg, index) => {
+        const row = document.createElement('tr');
+        row.innerHTML = `
+            <td>${reg.address} (0x${reg.address.toString(16).toUpperCase()})</td>
+            <td>${reg.type}</td>
+            <td>${reg.dataType}</td>
+            <td>${reg.value}</td>
+            <td>${reg.name || ''}</td>
+            <td class="action-buttons">
+                <button class="btn btn-small btn-info" onclick="editRegister(${index})">Upravit</button>
+                <button class="btn btn-small btn-danger" onclick="deleteRegister(${index})">Smazat</button>
+            </td>
+        `;
+        elements.registersTable.appendChild(row);
+    });
+}
+
+// --- Device Management ---
+function saveDeviceConfig() {
+    // In a real app we might persist to localStorage
+    // localStorage.setItem('modbusSimulatorDevice', JSON.stringify(device));
+}
+
+window.editRegister = function (index) {
+    const reg = device.registers[index];
+    elements.editIndex.value = index;
+    elements.regAddress.value = reg.address;
+    elements.regType.value = reg.type;
+    elements.regDataType.value = reg.dataType;
+    elements.regValue.value = reg.value;
+    elements.regName.value = reg.name || '';
+
+    elements.modalTitle.textContent = 'Upravit Registr';
+    elements.modal.classList.add('active');
+};
+
+window.deleteRegister = function (index) {
+    if (confirm('Opravdu smazat tento registr?')) {
+        device.registers.splice(index, 1);
+        renderRegisters();
+    }
+};
+
+function openAddModal() {
+    elements.editIndex.value = -1;
+    elements.regAddress.value = '';
+    elements.regValue.value = '0';
+    elements.regName.value = '';
+    elements.modalTitle.textContent = 'Přidat Registr';
+    elements.modal.classList.add('active');
+}
+
+function closeModal() {
+    elements.modal.classList.remove('active');
+}
+
+// --- Import / Export ---
+function exportConfig() {
+    // Update name from input before export
+    device.name = elements.deviceName.value;
+
+    // Sanitize filename: replace spaces with underscores, remove non-alphanumeric chars (except dash/underscore)
+    let filename = device.name.replace(/[^a-z0-9\-_]/gi, '_').replace(/_{2,}/g, '_');
+    if (!filename) filename = "device";
+
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(device, null, 2));
+    const downloadAnchorNode = document.createElement('a');
+    downloadAnchorNode.setAttribute("href", dataStr);
+    downloadAnchorNode.setAttribute("download", `${filename}.json`);
+    document.body.appendChild(downloadAnchorNode);
+    downloadAnchorNode.click();
+    downloadAnchorNode.remove();
+}
+
+function importConfig(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = function (e) {
+        try {
+            const config = JSON.parse(e.target.result);
+            if (!config.registers) throw new Error("Neplatný formát");
+            device = config;
+            elements.deviceName.value = device.name || "Nové Zařízení";
+            renderRegisters();
+            log('Konfigurace importována', 'success');
+        } catch (error) {
+            alert('Chyba při importu: ' + error.message);
+        }
+    };
+    reader.readAsText(file);
+    elements.fileInput.value = ''; // Reset input
+}
+
+// --- Event Listeners ---
+if (elements.addRegisterBtn) elements.addRegisterBtn.addEventListener('click', openAddModal);
+if (elements.cancelModalBtn) elements.cancelModalBtn.addEventListener('click', closeModal);
+if (elements.closeModal) elements.closeModal.addEventListener('click', closeModal);
+
+if (elements.registerForm) {
+    elements.registerForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const index = parseInt(elements.editIndex.value);
+
+        const newReg = {
+            address: parseInt(elements.regAddress.value),
+            type: elements.regType.value,
+            dataType: elements.regDataType.value,
+            value: parseFloat(elements.regValue.value), // Simple parsing, could be improved
+            name: elements.regName.value
+        };
+
+        if (elements.regDataType.value === 'boolean') {
+            newReg.value = elements.regValue.value.toLowerCase() === 'true' || elements.regValue.value === '1';
+        }
+
+        if (index >= 0) {
+            device.registers[index] = newReg;
+        } else {
+            device.registers.push(newReg);
+        }
+
+        device.registers.sort((a, b) => a.address - b.address); // Sort by address
+        renderRegisters();
+        closeModal();
+    });
+}
+
+if (elements.exportBtn) elements.exportBtn.addEventListener('click', exportConfig);
+if (elements.importBtn) elements.importBtn.addEventListener('click', () => elements.fileInput.click());
+if (elements.fileInput) elements.fileInput.addEventListener('change', importConfig);
+if (elements.deviceName) elements.deviceName.addEventListener('change', (e) => device.name = e.target.value);
+
+elements.baudRate.addEventListener('change', (e) => {
+    CONFIG.baudRate = parseInt(e.target.value);
+    log(`Baud rate nastaven na: ${CONFIG.baudRate}`);
+});
+
+if (elements.dataBits) {
+    elements.dataBits.addEventListener('change', (e) => {
+        CONFIG.dataBits = parseInt(e.target.value);
+        log(`Data Bits nastaveno na: ${CONFIG.dataBits}`);
+    });
+}
+
+if (elements.stopBits) {
+    elements.stopBits.addEventListener('change', (e) => {
+        CONFIG.stopBits = parseInt(e.target.value);
+        log(`Stop Bits nastaveno na: ${CONFIG.stopBits}`);
+    });
+}
+
+if (elements.parity) {
+    elements.parity.addEventListener('change', (e) => {
+        CONFIG.parity = e.target.value;
+        log(`Parity nastaveno na: ${CONFIG.parity}`);
+    });
+}
+
+elements.connectBtn.addEventListener('click', connect);
+elements.disconnectBtn.addEventListener('click', disconnect);
+elements.clearLogBtn.addEventListener('click', () => elements.log.innerHTML = '');
+
+// --- Serial & Modbus Logic ---
+
 async function connect() {
     if (!navigator.serial) {
         alert('Web Serial API není podporováno. Použijte Chrome nebo Edge.');
@@ -78,17 +272,17 @@ async function connect() {
             parity: CONFIG.parity
         });
 
-        const portInfo = port.getInfo();
-        updateStatus('Připojeno', `Port připojen (Baud: ${CONFIG.baudRate})`);
-        log('Připojeno k sériovému portu', 'success');
-        
-        document.getElementById('connectBtn').disabled = true;
-        document.getElementById('disconnectBtn').disabled = false;
+        const info = port.getInfo();
+        updateStatus('Připojeno', `Port připojen (${CONFIG.baudRate}/${CONFIG.dataBits}/${CONFIG.parity}/${CONFIG.stopBits})`);
+        log(`Připojeno k sériovému portu (${CONFIG.baudRate}, ${CONFIG.dataBits}, ${CONFIG.parity}, ${CONFIG.stopBits})`, 'success');
 
-        // Start reading
+        elements.connectBtn.disabled = true;
+        elements.disconnectBtn.disabled = false;
+
+        keepReading = true;
         reader = port.readable.getReader();
         writer = port.writable.getWriter();
-        
+
         readLoop();
     } catch (error) {
         log(`Chyba připojení: ${error.message}`, 'error');
@@ -96,12 +290,12 @@ async function connect() {
     }
 }
 
-// Disconnect from serial port
 async function disconnect() {
+    keepReading = false;
     if (reader) {
         try {
             await reader.cancel();
-        } catch (e) {}
+        } catch (e) { }
         reader.releaseLock();
         reader = null;
     }
@@ -112,64 +306,51 @@ async function disconnect() {
     if (port) {
         try {
             await port.close();
-        } catch (e) {}
+        } catch (e) { }
         port = null;
     }
-    
+
     updateStatus('Odpojeno');
     log('Odpojeno od sériového portu', 'info');
-    
-    document.getElementById('connectBtn').disabled = false;
-    document.getElementById('disconnectBtn').disabled = true;
+
+    elements.connectBtn.disabled = false;
+    elements.disconnectBtn.disabled = true;
 }
 
 // Calculate frame timeout based on baud rate (3.5 character times)
 function getFrameTimeout(baudRate) {
-    // 3.5 character times = 3.5 * 11 bits (1 start + 8 data + 1 parity + 1 stop)
-    // Time in milliseconds = (3.5 * 11 * 1000) / baudRate
     const timeout = Math.ceil((3.5 * 11 * 1000) / baudRate);
-    // Use minimum 5ms and add safety margin
     return Math.max(timeout + 2, 5);
 }
 
-// Read loop
 async function readLoop() {
     const buffer = [];
     let frameTimeout = null;
-    let lastByteTime = 0;
-    
-    while (port && port.readable) {
+
+    while (port && port.readable && keepReading) {
         try {
             const { value, done } = await reader.read();
             if (done) break;
-            
-            const currentTime = Date.now();
-            
-            // Add received bytes to buffer
+
             buffer.push(...value);
-            
-            // Clear existing timeout
+
             if (frameTimeout) {
                 clearTimeout(frameTimeout);
                 frameTimeout = null;
             }
-            
-            // Calculate timeout based on baud rate
+
             const timeout = getFrameTimeout(CONFIG.baudRate);
-            
-            // Check if we can process a complete frame immediately
-            // Try to parse frames from buffer while waiting for more data
+
+            // Try to process right away
             processFramesFromBuffer(buffer);
-            
-            // Wait for frame completion (3.5 character times)
+
+            // Wait for silence
             frameTimeout = setTimeout(() => {
                 if (buffer.length > 0) {
-                    // Try to process all complete frames from buffer
                     processFramesFromBuffer(buffer);
                 }
             }, timeout);
-            
-            lastByteTime = currentTime;
+
         } catch (error) {
             log(`Chyba čtení: ${error.message}`, 'error');
             break;
@@ -177,265 +358,241 @@ async function readLoop() {
     }
 }
 
-// Process complete frames from buffer
 function processFramesFromBuffer(buffer) {
-    while (buffer.length >= 4) { // Minimum frame size
-        // Try to find and process a complete frame
+    while (buffer.length >= 4) {
         const frame = extractFrame(buffer);
         if (frame) {
             processReceivedData(frame);
         } else {
-            // No complete frame found, wait for more data
             break;
         }
     }
 }
 
-// Extract a complete Modbus RTU frame from buffer
 function extractFrame(buffer) {
-    if (buffer.length < 4) return null; // Minimum frame size
-    
+    if (buffer.length < 4) return null;
+
     const address = buffer[0];
     const functionCode = buffer[1];
-    
-    // Calculate expected frame length based on function code
+
+    // We assume standard Modbus commands 
+    // 03 (Read Holding), 04 (Read Input), 06 (Write Single), 16 (Write Multiple)
+
     let expectedLength = 0;
-    
-    if (functionCode === 0x04) { // Read Input Registers
-        if (buffer.length < 8) return null; // Need at least: addr(1) + FC(1) + start(2) + qty(2) + CRC(2)
-        const quantity = (buffer[4] << 8) | buffer[5];
-        expectedLength = 8; // addr + FC + start_reg(2) + quantity(2) + CRC(2)
-    } else if (functionCode === 0x03) { // Read Holding Registers
-        if (buffer.length < 8) return null;
-        const quantity = (buffer[4] << 8) | buffer[5];
+
+    if (functionCode === 0x03 || functionCode === 0x04) {
+        // Read: Addr(1) + FC(1) + Start(2) + Qty(2) + CRC(2) = 8 bytes
         expectedLength = 8;
-    } else if (functionCode >= 0x01 && functionCode <= 0x06) {
-        // Single register/coil operations: addr + FC + addr(2) + value(2) + CRC(2) = 8 bytes
+    } else if (functionCode === 0x06) {
+        // Write Single: Addr(1) + FC(1) + Reg(2) + Val(2) + CRC(2) = 8 bytes
         expectedLength = 8;
+    } else if (functionCode === 0x10) { // 16 decimal = 0x10 hex (Write Multiple)
+        if (buffer.length < 7) return null; // Need enough bytes to read byte count
+        const byteCount = buffer[6];
+        // Addr(1) + FC(1) + Start(2) + Qty(2) + ByteCount(1) + Bytes(N) + CRC(2)
+        expectedLength = 9 + byteCount;
     } else {
-        // Unknown function code, try minimum frame
+        // Unknown or unsupported - minimal check
         expectedLength = 4;
     }
-    
-    // Check if we have enough data for complete frame
-    if (buffer.length < expectedLength) {
-        return null; // Wait for more data
-    }
-    
-    // Extract frame
+
+    if (buffer.length < expectedLength) return null;
+
     const frame = new Uint8Array(buffer.slice(0, expectedLength));
-    
-    // Verify CRC
     const receivedCRC = frame[frame.length - 2] | (frame[frame.length - 1] << 8);
     const calculatedCRC = calculateCRC16(frame.slice(0, -2));
-    
+
     if (receivedCRC === calculatedCRC) {
-        // Valid frame found, remove it from buffer
         buffer.splice(0, expectedLength);
         return frame;
     } else {
-        // CRC doesn't match - might be two frames merged
-        // Try to find next possible frame start (look for valid Modbus address)
-        for (let i = 1; i < Math.min(buffer.length - 3, 20); i++) {
-            // Check if byte at position i could be a valid address (1-247)
-            const testAddress = buffer[i];
-            if (testAddress >= 1 && testAddress <= 247) {
-                // Try to extract frame starting from this position
-                const testFrame = extractFrameFromPosition(buffer, i);
-                if (testFrame) {
-                    // Found valid frame, log the issue and remove everything before it
-                    log(`[VAROVÁNÍ] Detekovány slepené pakety - nalezen platný rámec na pozici ${i}, odstraňuji ${i} bytů před ním`, 'warning');
-                    buffer.splice(0, i);
-                    return testFrame;
-                }
-            }
-        }
-        
-        // No valid frame found starting from any position
-        // This might be corrupted data, remove first byte and try again
-        log(`[VAROVÁNÍ] Neplatný CRC a žádný další platný rámec nenalezen - odstraňuji první byte (0x${buffer[0].toString(16).toUpperCase()})`, 'warning');
+        // CRC Fail - simple recovery: drop one byte
+        // Ideally we should search for next potential valid start, but this is simple sim
         buffer.shift();
-        return null;
+        return null; // Retry next loop
     }
 }
 
-// Try to extract frame from specific position
-function extractFrameFromPosition(buffer, startPos) {
-    if (buffer.length < startPos + 4) return null;
-    
-    const address = buffer[startPos];
-    const functionCode = buffer[startPos + 1];
-    
-    let expectedLength = 0;
-    if (functionCode === 0x04 || functionCode === 0x03) {
-        if (buffer.length < startPos + 8) return null;
-        expectedLength = 8;
-    } else if (functionCode >= 0x01 && functionCode <= 0x06) {
-        expectedLength = 8;
-    } else {
-        expectedLength = 4;
-    }
-    
-    if (buffer.length < startPos + expectedLength) return null;
-    
-    const frame = new Uint8Array(buffer.slice(startPos, startPos + expectedLength));
-    const receivedCRC = frame[frame.length - 2] | (frame[frame.length - 1] << 8);
-    const calculatedCRC = calculateCRC16(frame.slice(0, -2));
-    
-    if (receivedCRC === calculatedCRC) {
-        return frame;
-    }
-    
-    return null;
-}
-
-// Process received Modbus RTU frame
 function processReceivedData(data) {
-    if (data.length < 4) return; // Minimum frame size
-    
     const address = data[0];
-    // Store address for potential use, but we'll use address from request data directly
-    const previousAddress = lastRequestAddress;
-    lastRequestAddress = address;
-    
-    const hexString = Array.from(data).map(b => b.toString(16).toUpperCase().padStart(2, '0')).join(' ');
-    log(`[PŘÍJEM] Adresa: ${address}, Data: ${hexString}, Délka: ${data.length} bytů`);
-    
-    if (previousAddress !== null && previousAddress !== address) {
-        log(`[INFO] Předchozí adresa byla ${previousAddress}, nová adresa je ${address}`, 'info');
-    }
-    
-    // Check if address is in valid range
-    if (address < START_ADDRESS || address > END_ADDRESS) {
-        log(`[BLOKOVÁNO] Adresa ${address} není v platném rozsahu (${START_ADDRESS}-${END_ADDRESS}) - požadavek ignorován`, 'warning');
-        lastRequestAddress = null; // Reset after blocking
-        return;
-    }
-    
-    // Verify CRC
-    const receivedCRC = data[data.length - 2] | (data[data.length - 1] << 8);
-    const calculatedCRC = calculateCRC16(data.slice(0, -2));
-    
-    if (receivedCRC !== calculatedCRC) {
-        log(`[CHYBA] Neplatný CRC: přijato 0x${receivedCRC.toString(16)}, vypočteno 0x${calculatedCRC.toString(16)}`, 'error');
-        lastRequestAddress = null; // Reset after error
-        return;
-    }
-    
-    // Process request - pass the data array, address will be extracted from data[0] in the handler
     const functionCode = data[1];
-    
-    if (functionCode === 0x04) { // Read Input Registers
-        processReadInputRegisters(data, address);
+
+    const hexString = Array.from(data).map(b => b.toString(16).toUpperCase().padStart(2, '0')).join(' ');
+    log(`[PŘÍJEM] Adresa: ${address}, FC: 0x${functionCode.toString(16)}, Data: ${hexString}`);
+
+    // Verify Address? We could implement an address filter in the device config too.
+    // For now, let's assume we reply to everything or check if we have registers.
+
+    if (functionCode === 0x03 || functionCode === 0x04) {
+        handleReadRegisters(data, address, functionCode);
+    } else if (functionCode === 0x06) {
+        handleWriteSingleRegister(data, address);
+    } else if (functionCode === 0x10) {
+        // handleWriteMultipleRegisters(data, address);
+        log('Write Multiple not fully implemented yet in UI sim', 'warning');
     } else {
-        log(`[NEPODPOROVÁNO] Function code: 0x${functionCode.toString(16)}`, 'warning');
-        lastRequestAddress = null; // Reset after unsupported function
+        log(`Nepodporovaný FC: ${functionCode}`, 'warning');
     }
 }
 
-// Process Read Input Registers request
-function processReadInputRegisters(request, address) {
+function handleReadRegisters(request, address, functionCode) {
+    // Both 0x03 and 0x04 
     const startRegister = (request[2] << 8) | request[3];
     const quantity = (request[4] << 8) | request[5];
-    
-    // Ensure we use the correct address from the request
-    const requestAddress = request[0]; // Get address directly from request data
-    if (requestAddress !== address) {
-        log(`[VAROVÁNÍ] Adresa z parametru ${address} se liší od adresy v requestu ${requestAddress} - používám adresu z requestu`, 'warning');
+
+    log(`[REQ] Read ${functionCode === 3 ? 'Holding' : 'Input'} @ ${startRegister}, Qty: ${quantity}`);
+
+    // Validate range
+    if (quantity < 1 || quantity > 125) {
+        // Send Exception?
+        return;
     }
-    const correctAddress = requestAddress; // Use address from request data
-    
-    log(`[POŽADAVEK] Adresa: ${correctAddress}, Registr: ${startRegister} (0x${startRegister.toString(16).toUpperCase()}), Počet: ${quantity}`);
-    
-    // Update buffer values
+
+    const byteCount = quantity * 2;
+    const response = new Uint8Array(3 + byteCount + 2);
+    response[0] = address;
+    response[1] = functionCode;
+    response[2] = byteCount;
+
+    const dataView = new DataView(response.buffer);
+
+    // Fill data
     for (let i = 0; i < quantity; i++) {
-        const registerAddr = startRegister + i;
-        if (registerAddr >= MAX_REGISTER) continue;
-        
-        if (registerAddr === REGISTER_ADDRESS) {
-            inputRegisters[registerAddr] = REGISTER_VALUE;
-            log(`[BUFFER] Registr ${registerAddr} (0x${registerAddr.toString(16).toUpperCase()}): hodnota 0x${REGISTER_VALUE.toString(16).toUpperCase()} (speciální)`);
-        } else {
-            inputRegisters[registerAddr] = registerAddr & 0xFFFF;
-            log(`[BUFFER] Registr ${registerAddr} (0x${registerAddr.toString(16).toUpperCase()}): hodnota 0x${registerAddr.toString(16).toUpperCase()} (stejná jako adresa)`);
+        const currentAddr = startRegister + i;
+        const regDef = device.registers.find(r => r.address === currentAddr);
+
+        // Default value if not found
+        let value = 0;
+
+        if (regDef) {
+            // Check type match?
+            // if (functionCode === 3 && regDef.type !== 'HoldingRegister') ... strictly speaking
+            // But let's be lenient or check type
+
+            // Handle multi-word types. 
+            // If we request 10, and 10 is Float32, we return 1st word.
+            // If we request 11, and 10 was Float32, we return 2nd word.
+
+            // This sparse lookup is naive for multi-word.
+            // A better way is to find the register that *covers* this address.
+
+            // Simplified logic: If exact match found, return its value (casted to u16).
+            // If it's a multi-word value, this simulation might need more complex memory map.
+
+            // For now: Support only 1-to-1 mapping or manual split in UI.
+            // If user defines Float32 at 10, we expect 10 and 11 to be read.
+            // We can calculate values on the fly.
+
+            value = getRegisterValue16Bit(currentAddr);
         }
+
+        dataView.setUint16(3 + i * 2, value, false); // Big Endian
     }
-    
-    // Build response - use correct address from request
-    const response = new Uint8Array(3 + quantity * 2 + 2);
-    response[0] = correctAddress; // Use address from request, not parameter
-    response[1] = 0x04; // Function code
-    response[2] = quantity * 2; // Byte count
-    
-    // Add register values
-    for (let i = 0; i < quantity; i++) {
-        const regValue = inputRegisters[startRegister + i];
-        response[3 + i * 2] = (regValue >> 8) & 0xFF;
-        response[3 + i * 2 + 1] = regValue & 0xFF;
-    }
-    
-    // Calculate and add CRC
+
+    // CRC
     const crc = calculateCRC16(response.slice(0, -2));
     response[response.length - 2] = crc & 0xFF;
     response[response.length - 1] = (crc >> 8) & 0xFF;
-    
-    const hexString = Array.from(response).map(b => b.toString(16).toUpperCase().padStart(2, '0')).join(' ');
-    log(`[ODESLÁNO] Adresa: ${correctAddress}, FC: 0x04, Byte count: ${quantity * 2}, Data bytes: ${quantity * 2}, Celkem: ${response.length} bytů`);
-    log(`[ODESLÁNO HEX] ${hexString}`);
-    
-    // Send response
+
     sendResponse(response);
 }
 
-// Send response
+function getRegisterValue16Bit(address) {
+    // Find register that starts at or before this address
+    // Sort registers first to be sure? They are sorted on add.
+
+    const reg = device.registers.find(r => r.address === address);
+    if (reg) {
+        // It's the start of a register.
+        return convertValueToWord(reg, 0);
+    }
+
+    // Check if it's the second word of a 32-bit/64-bit register
+    const prevReg = device.registers.find(r =>
+        (r.dataType === 'float32' || r.dataType === 'uint32' || r.dataType === 'int32') && r.address === address - 1
+    );
+    if (prevReg) return convertValueToWord(prevReg, 1);
+
+    // Check 64-bit...
+    // ... logic for float64 (4 registers) ...
+    // Simplified for now.
+
+    return 0;
+}
+
+function convertValueToWord(reg, wordOffset) {
+    const buffer = new ArrayBuffer(8); // Max size needed
+    const view = new DataView(buffer);
+
+    switch (reg.dataType) {
+        case 'float32':
+            view.setFloat32(0, reg.value, false); // Big Endian
+            return view.getUint16(wordOffset * 2, false);
+        case 'uint32':
+            view.setUint32(0, reg.value, false);
+            return view.getUint16(wordOffset * 2, false);
+        case 'int32':
+            view.setInt32(0, reg.value, false);
+            return view.getUint16(wordOffset * 2, false);
+        case 'float64':
+            view.setFloat64(0, reg.value, false);
+            return view.getUint16(wordOffset * 2, false);
+        case 'uint16':
+        default:
+            return reg.value & 0xFFFF;
+    }
+}
+
+function handleWriteSingleRegister(request, address) {
+    const regAddr = (request[2] << 8) | request[3];
+    const value = (request[4] << 8) | request[5];
+
+    log(`[Write] Addr: ${regAddr}, Val: ${value}`);
+
+    // Update model
+    const reg = device.registers.find(r => r.address === regAddr);
+    if (reg) {
+        // If it's a simple type, update it
+        if (reg.dataType === 'uint16' || reg.dataType === 'int16') {
+            // Treat as signed if int16?
+            if (reg.dataType === 'int16') {
+                // Convert to signed
+                const int16 = new Int16Array([value])[0];
+                reg.value = int16;
+            } else {
+                reg.value = value;
+            }
+        } else {
+            // Partial write to multi-word? Complex.
+            log('Partial write to multi-word register ignored in simplified view', 'warning');
+        }
+        renderRegisters(); // Refresh UI
+    } else {
+        // Auto-create register on write? Maybe useful.
+        // Or just ignore/Exception.
+        // For a simulator, auto-creation is a nice feature if enabled. 
+        // Let's just log for now.
+        log('Writing to undefined register', 'warning');
+    }
+
+    // Echo request as response
+    sendResponse(request);
+}
+
 async function sendResponse(data) {
     if (!writer) return;
-    
     try {
         await writer.write(data);
+        const hexString = Array.from(data).map(b => b.toString(16).toUpperCase().padStart(2, '0')).join(' ');
+        log(`[ODESLÁNO] ${hexString}`);
     } catch (error) {
         log(`Chyba odesílání: ${error.message}`, 'error');
     }
 }
 
-// Event listeners
-document.getElementById('connectBtn').addEventListener('click', connect);
-document.getElementById('disconnectBtn').addEventListener('click', disconnect);
-document.getElementById('clearLogBtn').addEventListener('click', () => {
-    document.getElementById('log').innerHTML = '';
-});
+// Init
+renderRegisters();
+log('Generic Modbus Simulator Ready');
 
-// Update config from UI
-document.getElementById('baudRate').addEventListener('change', (e) => {
-    CONFIG.baudRate = parseInt(e.target.value);
-    log(`Baud rate nastaven na: ${CONFIG.baudRate}`);
-});
-
-document.getElementById('startAddress').addEventListener('change', (e) => {
-    START_ADDRESS = parseInt(e.target.value);
-    log(`Start adresa nastavena na: ${START_ADDRESS}`);
-});
-
-document.getElementById('endAddress').addEventListener('change', (e) => {
-    END_ADDRESS = parseInt(e.target.value);
-    log(`End adresa nastavena na: ${END_ADDRESS}`);
-});
-
-document.getElementById('registerAddress').addEventListener('change', (e) => {
-    REGISTER_ADDRESS = parseInt(e.target.value, 16);
-    inputRegisters[REGISTER_ADDRESS] = REGISTER_VALUE;
-    log(`Registr nastaven na: 0x${REGISTER_ADDRESS.toString(16).toUpperCase()}`);
-});
-
-document.getElementById('registerValue').addEventListener('change', (e) => {
-    REGISTER_VALUE = parseInt(e.target.value, 16);
-    inputRegisters[REGISTER_ADDRESS] = REGISTER_VALUE;
-    log(`Hodnota registru nastavena na: 0x${REGISTER_VALUE.toString(16).toUpperCase()}`);
-});
-
-// Initialize
-initRegisters();
-log('Modbus RTU Simulator inicializován', 'success');
-log('Použijte Chrome nebo Edge pro Web Serial API podporu', 'info');
 
 

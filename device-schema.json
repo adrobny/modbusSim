@@ -1,0 +1,51 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Modbus Device Definition",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Name of the device"
+    },
+    "description": {
+      "type": "string",
+      "description": "Description of the device"
+    },
+    "registers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "address": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 65535,
+            "description": "Register address (0-based)"
+          },
+          "type": {
+            "type": "string",
+            "enum": ["Coil", "DiscreteInput", "HoldingRegister", "InputRegister"],
+            "description": "Type of Modbus register"
+          },
+          "dataType": {
+            "type": "string",
+            "enum": ["uint16", "int16", "uint32", "int32", "float32", "float64", "boolean"],
+            "default": "uint16",
+            "description": "Data type of the value"
+          },
+          "value": {
+            "type": ["number", "boolean"],
+            "default": 0,
+            "description": "Initial value"
+          },
+          "name": {
+            "type": "string",
+            "description": "Name of the register"
+          }
+        },
+        "required": ["address", "type"]
+      }
+    }
+  },
+  "required": ["name", "registers"]
+}
