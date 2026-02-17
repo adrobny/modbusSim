@@ -400,6 +400,12 @@ function extractFrame(buffer) {
         const byteCount = buffer[6];
         // Addr(1) + FC(1) + Start(2) + Qty(2) + ByteCount(1) + Bytes(N) + CRC(2)
         expectedLength = 9 + byteCount;
+    } else if (functionCode === 0x11) { // Report Server ID
+        // Addr(1) + FC(1) + CRC(2) = 4 bytes
+        expectedLength = 4;
+    } else if (functionCode === 0x2B) { // Read Device Identification
+        // Addr(1) + FC(1) + MEI(1) + ReadDevId(1) + ObjectId(1) + CRC(2) = 7 bytes
+        expectedLength = 7;
     } else {
         // Unknown or unsupported - minimal check
         expectedLength = 4;
@@ -439,6 +445,10 @@ function processReceivedData(data) {
     } else if (functionCode === 0x10) {
         // handleWriteMultipleRegisters(data, address);
         log('Write Multiple not fully implemented yet in UI sim', 'warning');
+    } else if (functionCode === 0x11) {
+        handleReportServerId(address);
+    } else if (functionCode === 0x2B) {
+        handleReadDeviceIdentification(data, address);
     } else {
         log(`Nepodporovaný FC: ${functionCode}`, 'warning');
     }
@@ -586,6 +596,97 @@ function handleWriteSingleRegister(request, address) {
 
     // Echo request as response
     sendResponse(request);
+}
+
+function handleReportServerId(address) {
+    // FC 17
+    const serverData = new TextEncoder().encode(device.name || 'ModbusSim');
+    const byteCount = 2 + serverData.length;
+
+    const response = new Uint8Array(2 + byteCount + 2); // Addr + FC + ByteCount + Data + RunStatus + CRC
+    let offset = 0;
+    response[offset++] = address;
+    response[offset++] = 0x11;
+    response[offset++] = byteCount; // Byte Count
+    response.set(serverData, offset);
+    offset += serverData.length;
+    response[offset++] = 0xFF; // Run Status (ON)
+
+    const crc = calculateCRC16(response.slice(0, -2));
+    response[response.length - 2] = crc & 0xFF;
+    response[response.length - 1] = (crc >> 8) & 0xFF;
+
+    log(`[Report Server ID] Data: ${device.name}`, 'info');
+    sendResponse(response);
+}
+
+function handleReadDeviceIdentification(request, address) {
+    // FC 43 (0x2B)
+    const meiType = request[2];
+    const readDeviceId = request[3];
+    const objectId = request[4];
+
+    if (meiType !== 0x0E) {
+        // Exception 01 or 02?
+        return;
+    }
+
+    const identity = device.identity || {};
+    const objects = {};
+
+    // Collect requested objects
+    if (readDeviceId === 0x01 || readDeviceId === 0x02) {
+        if (objectId === 0x00 || readDeviceId === 0x02) objects[0] = identity.vendorName || '';
+        if (objectId <= 0x01) objects[1] = identity.productCode || '';
+        if (objectId <= 0x02) objects[2] = identity.majorMinorRevision || '';
+    }
+
+    if (readDeviceId === 0x02) {
+        if (objectId <= 0x03) objects[3] = identity.vendorUrl || '';
+        if (objectId <= 0x04) objects[4] = identity.productName || '';
+        if (objectId <= 0x05) objects[5] = identity.modelName || '';
+        if (objectId <= 0x06) objects[6] = identity.userApplicationName || '';
+    }
+
+    // Build Payload
+    // FC(1) + MEI(1) + ReadDevId(1) + Conformity(1) + More(1) + NextId(1) + Count(1) + List(N)
+
+    // Calculate size
+    let objectListSize = 0;
+    const keys = Object.keys(objects);
+    keys.forEach(key => {
+        objectListSize += 2 + objects[key].length; // Id(1) + Len(1) + Val(N)
+    });
+
+    const response = new Uint8Array(1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + objectListSize + 2);
+    let offset = 0;
+    response[offset++] = address;
+    response[offset++] = 0x2B; // FC
+    response[offset++] = 0x0E; // MEI Type
+    response[offset++] = readDeviceId;
+    response[offset++] = 0x01; // Conformity Level
+    response[offset++] = 0x00; // More Follows
+    response[offset++] = 0x00; // Next Object Id
+    response[offset++] = keys.length; // Number of objects
+
+    const encoder = new TextEncoder();
+    keys.forEach(key => {
+        const id = parseInt(key);
+        const valStr = objects[key];
+        const valBytes = encoder.encode(valStr);
+
+        response[offset++] = id;
+        response[offset++] = valBytes.length;
+        response.set(valBytes, offset);
+        offset += valBytes.length;
+    });
+
+    const crc = calculateCRC16(response.slice(0, -2));
+    response[response.length - 2] = crc & 0xFF;
+    response[response.length - 1] = (crc >> 8) & 0xFF;
+
+    log(`[Read Device ID] Sending ${keys.length} objects`, 'info');
+    sendResponse(response);
 }
 
 async function sendResponse(data) {
