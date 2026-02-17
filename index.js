@@ -41,13 +41,23 @@ const serialPort = new SerialPort.SerialPort({
     path: CONFIG.port,
     baudRate: CONFIG.baudRate,
     dataBits: CONFIG.dataBits,
-    stopBits: CONFIG.stopBits,
     parity: CONFIG.parity
 });
 
+const attachHandlers = require('./lib/ServerHandler');
+
+// Apply Monkey-Patch for Custom Function Codes
+require('./lib/ModbusPatch')();
+
 // Create Modbus RTU server
-// We pass the buffers directly from our device
-const server = new Modbus.server.RTU(serialPort, device.getMemory());
+// We pass null buffers to disable default handling and use our own listeners
+const serverOptions = {
+    coils: null,
+    discrete: null,
+    holding: null,
+    input: null
+};
+const server = new Modbus.server.RTU(serialPort, serverOptions);
 
 server.on('connection', (client) => {
     console.log('Client connected');
@@ -56,6 +66,9 @@ server.on('connection', (client) => {
 server.on('close', () => {
     console.log('Client disconnected');
 });
+
+// Attach custom request handlers
+attachHandlers(server, device);
 
 server.on('postWriteSingleRegister', (value) => {
     // This event doesn't give us the address easily in all versions, 

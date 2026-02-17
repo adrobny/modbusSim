@@ -1,6 +1,15 @@
 {
     "name": "Sample Modbus Device",
-    "description": "A sample device for testing",
+    "description": "Simulated Modbus Device for Testing",
+    "identity": {
+        "vendorName": "MyCompany",
+        "productCode": "ModbusSim",
+        "majorMinorRevision": "1.0",
+        "vendorUrl": "https://example.com",
+        "productName": "Universal Modbus Simulator",
+        "modelName": "Sim-2000",
+        "userApplicationName": "SimulatorApp"
+    },
     "registers": [
         {
             "address": 10,

@@ -8,6 +8,15 @@ let CONFIG = {
 
 let device = {
     name: "Moje Zařízení",
+    identity: {
+        vendorName: "MyCompany",
+        productCode: "ModbusSim",
+        majorMinorRevision: "1.0",
+        vendorUrl: "https://example.com",
+        productName: "Universal Modbus Simulator",
+        modelName: "Sim-2000",
+        userApplicationName: "SimulatorApp"
+    },
     registers: [
         { address: 10, type: 'HoldingRegister', dataType: 'uint16', value: 1234, name: 'Test Register' }
     ]
