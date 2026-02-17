@@ -44,6 +44,7 @@ const elements = {
     // Check if elements exist (legacy safety)
     exportBtn: document.getElementById('exportBtn'),
     importBtn: document.getElementById('importBtn'),
+    quickLoadBtn: document.getElementById('quickLoadCG'),
     fileInput: document.getElementById('fileInput'),
     deviceName: document.getElementById('deviceName'),
     addRegisterBtn: document.getElementById('addRegisterBtn'),
@@ -195,6 +196,47 @@ function importConfig(event) {
     elements.fileInput.value = ''; // Reset input
 }
 
+function loadCG500() {
+    device = {
+        name: "CG-EN500",
+        identity: {
+            vendorName: "Carlo Gavazzi Controls",
+            productCode: "CG-EN500",
+            majorMinorRevision: "1.0",
+            vendorUrl: "https://www.gavazziautomation.com",
+            productName: "Energy Meter",
+            modelName: "EN500",
+            userApplicationName: "ModbusSim"
+        },
+        registers: [
+            { address: 0, type: "HoldingRegister", dataType: "int32", value: 2300, name: "V L1-N (Volt*10)" },
+            { address: 2, type: "HoldingRegister", dataType: "int32", value: 2300, name: "V L2-N (Volt*10)" },
+            { address: 4, type: "HoldingRegister", dataType: "int32", value: 2300, name: "V L3-N (Volt*10)" },
+            { address: 6, type: "HoldingRegister", dataType: "int32", value: 4000, name: "V L1-L2 (Volt*10)" },
+            { address: 8, type: "HoldingRegister", dataType: "int32", value: 4000, name: "V L2-L3 (Volt*10)" },
+            { address: 10, type: "HoldingRegister", dataType: "int32", value: 4000, name: "V L3-L1 (Volt*10)" },
+            { address: 12, type: "HoldingRegister", dataType: "int32", value: 10000, name: "A L1 (Amp*1000)" },
+            { address: 14, type: "HoldingRegister", dataType: "int32", value: 10000, name: "A L2 (Amp*1000)" },
+            { address: 16, type: "HoldingRegister", dataType: "int32", value: 10000, name: "A L3 (Amp*1000)" },
+            { address: 18, type: "HoldingRegister", dataType: "int32", value: 23000, name: "kW L1 (Watt*10)" },
+            { address: 20, type: "HoldingRegister", dataType: "int32", value: 23000, name: "kW L2 (Watt*10)" },
+            { address: 22, type: "HoldingRegister", dataType: "int32", value: 23000, name: "kW L3 (Watt*10)" },
+            { address: 40, type: "HoldingRegister", dataType: "int32", value: 69000, name: "kW sys (Watt*10)" },
+            { address: 50, type: "HoldingRegister", dataType: "int32", value: 500, name: "Hz (Hz*10)" },
+            { address: 52, type: "HoldingRegister", dataType: "int32", value: 123456, "name": "kWh (+) TOT (kWh*10)" },
+            { address: 11, type: "HoldingRegister", dataType: "uint16", value: 330, "name": "CG ID Code" },
+            { address: 770, type: "HoldingRegister", dataType: "uint16", value: 1, "name": "Version Code" },
+            { address: 771, type: "HoldingRegister", dataType: "uint16", value: 0, "name": "Revision Code" },
+            { address: 1024, type: "HoldingRegister", dataType: "int32", value: 12345, "name": "kWh (+) TOT - Integer" },
+            { address: 1026, type: "HoldingRegister", dataType: "int32", value: 678, "name": "kWh (+) TOT - Decimal (x1000)" }
+        ]
+    };
+    device.registers.sort((a, b) => a.address - b.address);
+    if (elements.deviceName) elements.deviceName.value = device.name;
+    renderRegisters();
+    log('Profil CG-EN500 načten', 'success');
+}
+
 // --- Event Listeners ---
 if (elements.addRegisterBtn) elements.addRegisterBtn.addEventListener('click', openAddModal);
 if (elements.cancelModalBtn) elements.cancelModalBtn.addEventListener('click', closeModal);
@@ -231,6 +273,7 @@ if (elements.registerForm) {
 
 if (elements.exportBtn) elements.exportBtn.addEventListener('click', exportConfig);
 if (elements.importBtn) elements.importBtn.addEventListener('click', () => elements.fileInput.click());
+if (elements.quickLoadBtn) elements.quickLoadBtn.addEventListener('click', loadCG500);
 if (elements.fileInput) elements.fileInput.addEventListener('change', importConfig);
 if (elements.deviceName) elements.deviceName.addEventListener('change', (e) => device.name = e.target.value);
 
